@@ -1,3 +1,6 @@
+//
+// Config
+//
 var config = {
 	end:"\n",
 	folder:__dirname,
@@ -6,33 +9,25 @@ var config = {
 
 var dgram = require("dgram");
 var fs = require('fs');
+var util = require('util');
 
-var server4 = dgram.createSocket("udp4");
-var server6 = dgram.createSocket("udp6");
+//
+// Prepare callbacks
+//
 
-server4.on("message", function (msg, rinfo) {
-	
-	// create folder
-	if (!fs.existsSync(config.folder + "\\" + rinfo.address)) {
-		fs.mkdirSync(config.folder + "\\" + rinfo.address);
+var createOrAppendToFileSync = function(msg, rinfo, formattedIp) {
+  if (typeof formattedIp === 'undefined' || formattedIp === null) {
+    formattedIp = rinfo.address;
+  }
+  // create folder if it does not exist
+	if (!fs.existsSync(config.folder + "\\" + formattedIp)) {
+		fs.mkdirSync(config.folder + "\\" + formattedIp);
 	}
 	
-	// write message
-	fs.appendFileSync(config.folder + "\\" + rinfo.address + "\\" + rinfo.address + "_" + formatDate() + ".txt", msg + config.end);
-});
-
-server6.on("message", function (msg, rinfo) {
-	// replace : in IPv6 address
-	var ip = rinfo.address.replace(/:/g, ".");
+	var filename = util.format('%s\\%s\\%s_%s.txt', config.folder, formattedIp, formattedIp, formatDate());
 	
-	// create folder
-	if (!fs.existsSync(config.folder + "\\" + ip)) {
-		fs.mkdirSync(config.folder + "\\" + ip);
-	}
-	
-	// write message
-	fs.appendFileSync(config.folder + "\\" + ip + "\\" + ip + "_" + formatDate() + ".txt", msg + config.end);
-});
+	fs.appendFileSync(filename, msg + config.end);
+};
 
 var formatDate = function(date) {
   var now = date || (new Date());
@@ -44,17 +39,11 @@ var formatDate = function(date) {
 	return YY + "_" + MM + "_" + DD;
 }
 
-server4.on("listening", function () {
-  var address = server4.address();
+var socketListeningHandler = function() {
+  var addressInfo = this.address();
   console.log("server listening " +
-      address.address + ":" + address.port);
-});
-
-server6.on("listening", function () {
-  var address = server6.address();
-  console.log("server listening " +
-      address.address + ":" + address.port);
-});
+    addressInfo.address + ":" + addressInfo.port);
+};
 
 var socketErrorHandler = function(exception) {
   console.error("A Socketerror occured!");
@@ -64,8 +53,22 @@ var socketErrorHandler = function(exception) {
   console.warn(exception);
 };
 
-server4.on('error', socketErrorHandler);
-server6.on('error', socketErrorHandler);
+//
+// Start Sockets
+//
 
-server4.bind(config.port);
-server6.bind(config.port);
+var server4 = dgram.createSocket("udp4");
+var server6 = dgram.createSocket("udp6");
+
+server4.on("message", createOrAppendToFileSync);
+
+server6.on("message", function (msg, rinfo) {
+	var ip = rinfo.address.replace(/:/g, "."); // replace ':' in IPv6 address
+	createOrAppendToFileSync(msg, rinfo, ip);
+});
+
+[server4, server6].map(function(socket) {
+  socket.on('listening', socketListeningHandler);
+  socket.on('error', socketErrorHandler);
+  socket.bind(config.port);
+});
